@@ -14,14 +14,15 @@
 // <swiftbar.hideLastUpdated>true</swiftbar.hideLastUpdated>
 //
 // 설정은 SwiftBar 플러그인 변수로 바꾼다. 값은 플러그인 폴더의 orca-usage.1m.vars.json에 저장된다.
-// <xbar.var>select(ORCA_USAGE_TITLE="claude-both"): 메뉴바에 보일 숫자. [claude-both, claude-session, claude-weekly, max]</xbar.var>
+// <xbar.var>select(ORCA_USAGE_TITLE="claude-both"): 메뉴바에 보일 숫자. [claude-both, claude-session, claude-weekly, glm-both, glm-session, glm-weekly, max]</xbar.var>
 // <xbar.var>number(ORCA_USAGE_AUTO_REFRESH_MINUTES="5"): Orca 값이 이 분보다 오래되면 자동 새로고침 (0이면 끔)</xbar.var>
 // <xbar.var>number(ORCA_USAGE_WARN_PERCENT="70"): 주황색 경고 기준 (%)</xbar.var>
 // <xbar.var>number(ORCA_USAGE_CRITICAL_PERCENT="90"): 빨간색 경고 기준 (%)</xbar.var>
 // <xbar.var>boolean(ORCA_USAGE_SHOW_PACE="true"): 막대에 기간 경과 세로선 표시</xbar.var>
 
 const CONFIG = {
-  // 메뉴바 숫자: 'claude-both'(세션·주간) | 'claude-session' | 'claude-weekly' | 'max'(전체 중 최고값)
+  // 메뉴바 숫자: '<제공자>-both'(세션·주간) | '<제공자>-session' | '<제공자>-weekly' | 'max'(전체 중 최고값)
+  // 제공자는 TITLE_PROVIDERS의 claude, glm
   title: process.env.ORCA_USAGE_TITLE || 'claude-both',
   // Orca 값이 이보다 오래되면 자동으로 Orca에 새로고침 요청. 0이면 자동 새로고침 끔
   autoRefreshAfterMs: numberEnv('ORCA_USAGE_AUTO_REFRESH_MINUTES', 5) * 60_000,
@@ -62,11 +63,17 @@ const PROVIDERS = {
   kimi: 'Kimi',
   grok: 'Grok',
   cursor: 'Cursor',
-  zcode: 'ZCode',
+  // Orca 내부 이름은 zcode지만 Z.AI·Zhipu(BigModel) GLM Coding Plan 사용량이다.
+  zcode: 'GLM Coding Plan',
   antigravity: 'Antigravity',
 }
 
+// 메뉴바 숫자 설정의 제공자 이름 → Orca rateLimits 키
+const TITLE_PROVIDERS = { claude: 'claude', glm: 'zcode' }
+
 const WINDOW_LABELS = { session: '세션 5시간', weekly: '주간', fableWeekly: '주간 · Fable', monthly: '월간' }
+// GLM의 monthly는 토큰이 아니라 웹 검색 같은 MCP 도구 호출 월 한도다 (Orca 화면의 "매월 MCP").
+const PROVIDER_WINDOW_LABELS = { zcode: { monthly: '월간 · MCP' } }
 const WINDOW_ORDER = ['session', 'weekly', 'fableWeekly', 'monthly']
 
 // ---------- Orca 런타임 ----------
@@ -301,8 +308,9 @@ function formatReset(ts, now) {
   return `${d.getMonth() + 1}/${d.getDate()}(${'일월화수목금토'[d.getDay()]}) ${hm} 리셋`
 }
 
-function windowLabel(key, win) {
-  if (WINDOW_LABELS[key]) return WINDOW_LABELS[key]
+function windowLabel(provider, key, win) {
+  const label = PROVIDER_WINDOW_LABELS[provider]?.[key] ?? WINDOW_LABELS[key]
+  if (label) return label
   if (win.windowMinutes === 300) return '5시간'
   if (win.windowMinutes === 10_080) return '주간'
   if (win.windowMinutes === 43_200) return '월간'
@@ -346,11 +354,14 @@ function lastUpdatedAt(providers) {
   return all.length > 0 ? Math.max(...all) : 0
 }
 
+// 고른 제공자가 연결돼 있지 않으면 'max'처럼 전체 중 최고값을 보여준다.
 function titleWindows(providers) {
-  const claude = providers.find((p) => p.key === 'claude' && isConnected(p))
-  if (claude && CONFIG.title !== 'max') {
-    const pick = { 'claude-session': ['session'], 'claude-weekly': ['weekly'] }[CONFIG.title] ?? ['session', 'weekly']
-    return pick.map((k) => claude.limits[k] ?? null)
+  const [name, mode] = CONFIG.title.split('-')
+  const key = CONFIG.title === 'max' ? null : (TITLE_PROVIDERS[name] ?? 'claude')
+  const target = providers.find((p) => p.key === key && isConnected(p))
+  if (target) {
+    const pick = { session: ['session'], weekly: ['weekly'] }[mode] ?? ['session', 'weekly']
+    return pick.map((k) => target.limits[k] ?? null)
   }
   const all = providers.filter(isConnected).flatMap((p) => p.windows)
   if (all.length === 0) return []
@@ -362,6 +373,13 @@ function claudeAccountLabel(snapshot) {
   const active = claude?.accounts?.find((a) => a.id === claude.activeAccountId)
   if (active) return active.organizationName ? `${active.email} (${active.organizationName})` : active.email
   return claude?.systemDefaultEmail ?? null
+}
+
+// 제공자 이름 옆에 붙일 계정·요금제. Orca가 planType을 주는 제공자(GLM의 lite/pro/max 등)는 요금제 등급을 보여준다.
+function providerDetail(p, snapshot) {
+  if (p.key === 'claude') return claudeAccountLabel(snapshot)
+  const plan = typeof p.limits.planType === 'string' ? p.limits.planType.trim() : ''
+  return plan ? `${plan[0].toUpperCase()}${plan.slice(1)} 플랜` : null
 }
 
 // ---------- 출력 ----------
@@ -401,8 +419,8 @@ function renderUsage(snapshot, now, notices) {
   const connected = providers.filter(isConnected)
   let paceShown = false
   for (const p of connected) {
-    const account = p.key === 'claude' ? claudeAccountLabel(snapshot) : null
-    lines.push(`${clean(account ? `${p.name} · ${account}` : p.name)} | size=13 ${ACTIVE}`)
+    const detail = providerDetail(p, snapshot)
+    lines.push(`${clean(detail ? `${p.name} · ${detail}` : p.name)} | size=13 ${ACTIVE}`)
     for (const w of p.windows) {
       const pct = percent(w.usedPercent)
       const reset = w.resetsAt ? ` · ${formatReset(w.resetsAt, now)}` : ''
@@ -410,7 +428,7 @@ function renderUsage(snapshot, now, notices) {
       const pace = CONFIG.showPace ? paceFraction(w, now) : null
       paceShown ||= pace !== null
       lines.push(
-        `${String(pct).padStart(3)}%  ${clean(windowLabel(w.key, w) + reset)} | ${barParams(pct, pace)} font=Menlo size=12 ${ACTIVE}${c ? ` color=${c}` : ''}`
+        `${String(pct).padStart(3)}%  ${clean(windowLabel(p.key, w.key, w) + reset)} | ${barParams(pct, pace)} font=Menlo size=12 ${ACTIVE}${c ? ` color=${c}` : ''}`
       )
     }
     const extra = p.limits.extraUsage
