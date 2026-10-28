@@ -40,6 +40,17 @@
         "error": null,
         "status": "ok"
       },
+      "zcode": {
+        "provider": "zcode",
+        "session": { "usedPercent": 12, "windowMinutes": 300, "resetsAt": 1793082000000, "resetDescription": null },
+        "weekly": { "usedPercent": 31, "windowMinutes": 10080, "resetsAt": 1793422800000, "resetDescription": null },
+        "monthly": { "usedPercent": 8, "windowMinutes": 43200, "resetsAt": 1794114000000, "resetDescription": null },
+        "planType": "max",
+        "updatedAt": 1793077140000,
+        "error": null,
+        "status": "ok",
+        "usageMetadata": { "source": "web", "credentialSource": "orca-plan" }
+      },
       "codex": {
         "provider": "codex",
         "session": null,

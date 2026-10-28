@@ -8,7 +8,7 @@
 
 - **Orca가 단일 기준(SSOT)**: 제공자 API를 직접 부르지 않고 Orca가 가진 값만 보여줍니다.
 - **새로고침도 Orca에 요청**: 메뉴의 "↻ 지금 새로고침"이나 자동 새로고침은 Orca가 직접 제공자에서 다시 받아오게 합니다. 그래서 Orca 화면과 메뉴바가 항상 같은 값을 봅니다.
-- **제공자별 사용률**: 세션(5시간), 주간, 월간 사용률과 리셋 시각을 보여줍니다.
+- **제공자별 사용률**: 세션(5시간), 주간, 월간 사용률과 리셋 시각을 보여줍니다. Claude, Codex 외에 GLM Coding Plan(Z.AI·Zhipu)도 Orca에 연결하면 함께 나옵니다.
 - **기간 경과 세로선**: 리셋 주기 중 지난 시간을 세로선으로 표시합니다. 막대가 선보다 짧으면 여유 있게 쓰는 중입니다.
 - 다크/라이트 모드 지원, 70% 주황 / 90% 빨강 경고
 
@@ -28,6 +28,10 @@ OpenCode Go
 MiniMax
 [■■■■■□□□□□]  47%  세션 5시간 · 오늘 16:14 리셋 (1시간 39분 후)
 [□□□□□□□□□□]   4%  주간 · 11/2(월) 02:35 리셋
+GLM Coding Plan · Max 플랜
+[■□□□□□□□□□]  12%  세션 5시간 · 오늘 15:55 리셋 (1시간 20분 후)
+[■■■□□□□□□□]  31%  주간 · 10/31(토) 14:35 리셋
+[■□□□□□□□□□]   8%  월간 · MCP · 11/8(일) 14:35 리셋
 ──────────────────────────────────────────────
 미연결 제공자 2개 ▸
 갱신 방금 · Orca 기준
@@ -78,11 +82,24 @@ git pull
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `ORCA_USAGE_TITLE` | `claude-both` | 메뉴바 숫자. `claude-both`(세션·주간), `claude-session`, `claude-weekly`, `max`(연결된 제공자 전체 중 최고값) |
+| `ORCA_USAGE_TITLE` | `claude-both` | 메뉴바 숫자. `claude-both`(세션·주간), `claude-session`, `claude-weekly`, `glm-both`, `glm-session`, `glm-weekly`, `max`(연결된 제공자 전체 중 최고값). 고른 제공자가 연결돼 있지 않으면 `max`처럼 표시 |
 | `ORCA_USAGE_AUTO_REFRESH_MINUTES` | `5` | Orca 값이 이 분보다 오래되면 자동으로 새로고침 요청. `0`이면 끔 |
 | `ORCA_USAGE_WARN_PERCENT` | `70` | 주황색 경고 기준 (%) |
 | `ORCA_USAGE_CRITICAL_PERCENT` | `90` | 빨간색 경고 기준 (%) |
 | `ORCA_USAGE_SHOW_PACE` | `true` | 막대에 기간 경과 세로선 표시 |
+
+## GLM Coding Plan 연결
+
+GLM 사용량도 Orca에서 받아옵니다. 플러그인에 키를 넣는 곳은 없고, Orca에 한 번 연결하면 됩니다.
+
+1. Orca 설정 → 계정 → **GLM Coding Plan**에서 요금제 사이트(Z.AI 또는 Zhipu BigModel)를 고릅니다.
+2. 그 사이트 콘솔에서 받은 요금제 API 키를 저장합니다. ZCode CLI로 로그인돼 있으면 Orca가 그 설정(`~/.zcode/cli/config.json`)을 대신 읽으므로 이 단계는 건너뛰어도 됩니다.
+3. 다음 갱신(최대 1분, 또는 "↻ 지금 새로고침")부터 메뉴에 `GLM Coding Plan` 항목이 나옵니다.
+
+- Orca 내부 이름은 `zcode`이고, 연결 전에는 "미연결 제공자"에 `ZCode Coding Plan credentials are not configured`로 나옵니다.
+- 세션·주간은 토큰 한도, `월간 · MCP`는 웹 검색 같은 MCP 도구 호출의 월 한도입니다(Orca 화면의 "매월 MCP").
+- 제공자 이름 옆의 요금제 등급(Lite/Pro/Max)은 Z.AI 응답 그대로입니다.
+- 메뉴바 숫자를 GLM 기준으로 보려면 `ORCA_USAGE_TITLE`을 `glm-both` 등으로 바꿉니다.
 
 ## 동작 방식
 
@@ -113,9 +130,10 @@ ELECTRON_RUN_AS_NODE=1 /Applications/Orca.app/Contents/MacOS/Orca scripts/previe
 |---|---|---|
 | Orca 런타임 명령 `accounts.list`의 `refreshUsage` 옵션 | 공개 CLI 명령이 아닌 내부 기능 | 메뉴에 "새로고침 실패"를 띄우고, 저장된 값은 계속 보여줌 |
 | Orca 앱 안의 런타임 클라이언트 경로 | 앱 내부 구조라 업데이트로 바뀔 수 있음 | "Orca 연결 실패" 표시 |
+| Orca `zcode` 사용량의 `monthly`가 MCP 월 한도라는 것 | Orca 내부 매핑이라 바뀔 수 있음 | GLM 월간 막대 라벨이 실제와 달라짐 |
 | SwiftBar의 `width`/`height` 파라미터 | 문서에 없음. SwiftBar 2.1.1은 macOS 26에서 16pt보다 큰 메뉴 이미지를 줄이는데, 이 파라미터로 원래 크기를 지정함 | 막대가 작게 보임 |
 
-확인한 버전: Orca 1.4.229, SwiftBar 2.1.1, macOS 26.6.2
+확인한 버전: Orca 1.4.229, SwiftBar 2.1.1, macOS 26.6.2 (GLM Coding Plan 표시는 Orca 1.4.237, macOS 26.6)
 
 ## 제거
 
